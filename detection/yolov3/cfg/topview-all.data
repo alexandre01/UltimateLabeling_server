@@ -1,0 +1,6 @@
+classes = 6
+train = aerial_dataset/train-all.txt
+valid = aerial_dataset/test-all.txt
+names = cfg/topview-all.names
+backup = backup/
+gpus = 0

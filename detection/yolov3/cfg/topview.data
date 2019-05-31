@@ -1,0 +1,6 @@
+classes = 4
+train = topview/train.txt
+valid = topview/test.txt
+names = cfg/topview.names
+backup = backup/
+gpus = 0
