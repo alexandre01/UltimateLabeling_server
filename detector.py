@@ -21,7 +21,7 @@ import openpifpaf
 import glob
 
 
-HOST, PORT = "", 8788
+HOST, PORT = "", 8786
 OK_SIGNAL = b"ok"
 TERMINATE_SIGNAL = b"terminate"
 
@@ -119,6 +119,16 @@ class YOLODetector(Detector):
             b[2] *= xs * factor_w
             b[3] *= ys * factor_h
 
+    def yolo_to_coco_class(self, class_id):
+        if class_id in [0, 3]:
+            return 3
+        if class_id == 1:
+            return 8
+        if class_id == 2:
+            return 6
+
+        return 0
+
     def detect_single_image(self, image_path, crop_area=None):
         img = Image.open(image_path).convert('RGB')
         w, h = img.size
@@ -139,7 +149,7 @@ class YOLODetector(Detector):
 
         print('%s: Predicted in %f seconds.' % (image_path, (finish - start)))
 
-        detections = [Detection(class_id=b[6].item(), track_id=i,
+        detections = [Detection(class_id=self.yolo_to_coco_class(b[6].item()), track_id=i,
                                 bbox=Bbox((b[0] - b[2] / 2).item() * w, (b[1] - b[3] / 2).item() * h,
                                           b[2].item() * w, b[3].item() * h)) for i, b in enumerate(boxes)]
 
@@ -235,16 +245,24 @@ class DetectionHandler(socketserver.BaseRequestHandler):
 
         crop_area = options["crop_area"]
 
-        if options["filename"] is not None:
-            detections = detector.detect_single_image(options["filename"], crop_area)
-            self.send_detection(detections)
+        try:
+            if options["filename"] is not None:
+                if not os.path.exists(options["filename"]):
+                    self.send_error("No such file on server: {}".format(options["filename"]))
 
-        elif options["seq_path"] is not None:
-
-            file_names = sorted(glob.glob('{}/*.jpg'.format(options["seq_path"])), key=utils.natural_sort_key)
-
-            for detections in detector.detect_batch(file_names, crop_area):
+                detections = detector.detect_single_image(options["filename"], crop_area)
                 self.send_detection(detections)
+
+            elif options["seq_path"] is not None:
+                if not os.path.exists(options["seq_path"]):
+                    self.send_error("No such folder on server: {}".format(options["seq_path"]))
+
+                file_names = sorted(glob.glob('{}/*.jpg'.format(options["seq_path"])), key=utils.natural_sort_key)
+
+                for detections in detector.detect_batch(file_names, crop_area):
+                    self.send_detection(detections)
+        except Exception as e:
+            self.send_error(str(e))
 
         torch.cuda.empty_cache()
 
@@ -273,6 +291,12 @@ class DetectionHandler(socketserver.BaseRequestHandler):
 
     def send_ok_signal(self):
         self.request.sendall(OK_SIGNAL)
+
+    def send_error(self, error_msg):
+        json_data = json.dumps({
+            'error': error_msg
+        })
+        utils.send_data(self.request, json_data.encode())
 
 
 if __name__ == "__main__":

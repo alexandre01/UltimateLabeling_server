@@ -149,6 +149,21 @@ def siamese_init(im, target_pos, target_sz, model, hp=None, use_cuda=True):
     state['target_sz'] = target_sz
     return state
 
+def get_image_crop(state, im):
+    p = state['p']
+    avg_chans = state['avg_chans']
+    target_pos = state['target_pos']
+    target_sz = state['target_sz']
+
+    wc_x = target_sz[1] + p.context_amount * sum(target_sz)
+    hc_x = target_sz[0] + p.context_amount * sum(target_sz)
+    s_x = np.sqrt(wc_x * hc_x)
+    scale_x = p.exemplar_size / s_x
+    d_search = (p.instance_size - p.exemplar_size) / 2
+    pad = d_search / scale_x
+    s_x = s_x + 2 * pad
+
+    return get_subwindow_tracking(im, target_pos, p.instance_size, round(s_x), avg_chans, out_mode="cv2")
 
 def siamese_track(state, im, mask_enable=False, refine_enable=False, use_cuda=True, preprocessed=False):
     p = state['p']

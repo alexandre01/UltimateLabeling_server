@@ -108,9 +108,15 @@ class TrackInfo:
         else:
             return N+1
 
-    def save_to_disk(self):
-        with open(os.path.join(OUTPUT_DIR, "{}.json".format(self.video_name)), "w") as f:
-            json.dump(self.to_json(), f, indent=4)
+    def save_to_disk(self, backup=None):
+
+        if backup is not None:
+            file_name = "{}_backup_{}.json".format(self.video_name, backup)
+        else:
+            file_name = "{}.json".format(self.video_name)
+
+        with open(os.path.join(OUTPUT_DIR, file_name), "w") as f:
+            json.dump(self.to_json(), f)
 
 
 class Detector:
@@ -176,6 +182,16 @@ class YOLODetector(Detector):
             b[2] *= xs * factor_w
             b[3] *= ys * factor_h
 
+    def yolo_to_coco_class(self, class_id):
+        if class_id in [0, 3]:
+            return 3
+        if class_id == 1:
+            return 8
+        if class_id == 2:
+            return 6
+
+        return 0
+
     def detect_single_image(self, image_path, crop_area=None):
         img = Image.open(image_path).convert('RGB')
         w, h = img.size
@@ -196,7 +212,7 @@ class YOLODetector(Detector):
 
         print('%s: Predicted in %f seconds.' % (image_path, (finish - start)))
 
-        detections = [Detection(class_id=b[6].item(), track_id=i,
+        detections = [Detection(class_id=self.yolo_to_coco_class(b[6].item()), track_id=i,
                                 bbox=Bbox((b[0] - b[2] / 2).item() * w, (b[1] - b[3] / 2).item() * h,
                                           b[2].item() * w, b[3].item() * h)) for i, b in enumerate(boxes)]
 
@@ -302,6 +318,9 @@ def main():
 
         if frame % 100 == 0:
             track_info.save_to_disk()
+
+        if frame % 1000 == 0:
+            track_info.save_to_disk(backup=(frame // 1000))
 
     track_info.save_to_disk()
 

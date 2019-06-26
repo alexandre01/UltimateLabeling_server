@@ -1,6 +1,6 @@
 from siamMask.models.custom import Custom
 from siamMask.utils.load_helper import load_pretrain
-from siamMask.test import siamese_init, siamese_track
+from siamMask.test import siamese_init, siamese_track, get_image_crop
 import torch
 from polygon import Polygon, Bbox
 import cv2
@@ -9,12 +9,13 @@ import pickle
 import struct
 import argparse
 import json
+import os
 from polygon import Bbox
 
 
 HOST, PORT = "", 8787
 OK_SIGNAL = b"ok"
-TERMINATE_SIGNAL = b"terminate"
+TERMINATE_SIGNAL = "terminate"
 
 
 class Tracker:
@@ -73,17 +74,29 @@ class TrackingHandler(socketserver.BaseRequestHandler):
         self.send_ok_signal()
 
         init_bbox = self.receive_bbox()
-        img = self.receive_frame()
+        image_path = self.receive_image_path()
+
+        if not os.path.exists(image_path):
+            self.send_error_signal("No such file on the server {}".format(image_path))
+            return
+
+        img = cv2.imread(image_path)
         tracker.init(img, init_bbox)
         self.send_ok_signal()
 
         while True:
-            img = self.receive_frame()
+            image_path = self.receive_image_path()
 
-            if img is None:
+            if image_path == TERMINATE_SIGNAL:
                 print("Tracker terminated.")
-                break
+                return
 
+            if not os.path.exists(image_path):
+                self.send_error("No such file on the server {}".format(image_path))
+                return
+
+            img = cv2.imread(image_path)
+            img = get_image_crop(tracker.state, img)
             bbox, polygon = tracker.track(img)
 
             self.send_detection(bbox, polygon)
@@ -93,6 +106,12 @@ class TrackingHandler(socketserver.BaseRequestHandler):
         bbox = pickle.loads(data)
         return Bbox(*bbox)
 
+    def send_error(self, error_msg):
+        json_data = json.dumps({
+            'error': error_msg
+        })
+        self.request.sendall(json_data.encode())
+
     def send_detection(self, bbox, polygon):
         json_data = json.dumps({
             'bbox': bbox.to_json(),
@@ -100,35 +119,22 @@ class TrackingHandler(socketserver.BaseRequestHandler):
         })
         self.request.sendall(json_data.encode())
 
+    def send_error_signal(self, error_msg):
+        self.request.sendall(error_msg.encode())
+
     def send_ok_signal(self):
         self.request.sendall(OK_SIGNAL)
 
-    def receive_frame(self):
-        data = b""
-
-        while len(data) < self.PAYLOAD_SIZE:
-            data += self.request.recv(4096)
-
-        if data == TERMINATE_SIGNAL:
-            return
-
-        packed_msg_size = data[:self.PAYLOAD_SIZE]
-        msg_size = struct.unpack(">L", packed_msg_size)[0]
-
-        data = data[self.PAYLOAD_SIZE:]
-        while len(data) < msg_size:
-            data += self.request.recv(4096)
-        frame_data = data[:msg_size]
-
-        frame = pickle.loads(frame_data, fix_imports=True, encoding="bytes")
-        frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
-
-        return frame
+    def receive_image_path(self):
+        data = self.request.recv(1024)
+        image_path = data.decode()
+        return image_path
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tracking server")
+    parser.add_argument("-p", "--port", type=int, default=PORT, help="socket port")
     args = parser.parse_args()
 
-    server = socketserver.TCPServer((HOST, PORT), TrackingHandler)
+    server = socketserver.TCPServer((HOST, args.port), TrackingHandler)
     server.serve_forever()
