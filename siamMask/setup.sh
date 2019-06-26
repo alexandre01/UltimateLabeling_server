@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "Installing Python requirements"
-virtualenv -p /usr/bin/python3 env
+virtualenv --no-site-packages -p /usr/bin/python3 env
 source env/bin/activate
 pip install -r requirements.txt
 

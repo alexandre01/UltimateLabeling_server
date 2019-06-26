@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 input_path=$1
-file_name=${input_path%%.*}
+output_path=${input_path%%.*}
 
-mkdir $file_name
-ffmpeg -i $input_path -qscale:v 2 -start_number 0 $file_name/%05d.jpg
+mkdir output_path
+ffmpeg -i $input_path -vf "select=not(mod(n\,5))" -vsync vfr -qscale:v 2 -start_number 0 output_path/%05d.jpg

@@ -54,69 +54,77 @@ class Detection:
                                                                                  self.bbox, self.polygon, self.keypoints)
 
 class TrackInfo:
-    def __init__(self, video_name="", file_names=[]):
+    def __init__(self, video_name=""):
         self.video_name = video_name
-        self.file_names = file_names
-        self.nb_frames = len(file_names)
+
+        dir_name = os.path.join(OUTPUT_DIR, self.video_name)
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
 
         self.nb_track_ids = 0
-
         self.class_names = DEFAULT_CLASS_NAMES
-        self.detections = [[] for _ in range(self.nb_frames)]
+        self.load_info()
 
-        self.load_from_disk()
+        self.file_name = None
+        self.detections = []
 
-    def load_from_disk(self):
-        file_name = os.path.join(OUTPUT_DIR, "{}.json".format(self.video_name))
+    def save_to_disk(self):
+        self.write_info()
+        self.write_detections(self.file_name)
 
-        if not os.path.exists(file_name):
+    def load_info(self):
+        json_file = os.path.join(OUTPUT_DIR, "{}/info.json".format(self.video_name))
+
+        if not os.path.exists(json_file):
             return
 
-        with open(file_name, "r") as f:
+        with open(json_file, "r") as f:
             data = json.load(f)
             self.nb_track_ids = data["nb_track_ids"]
-            self._load_class_names(data)
-            self.detections = [[Detection.from_json(detection) for detection in frame["detections"]] for frame in data["frames"]]
+            self.class_names = {int(k): v for k, v in json.loads(data["class_names"]).items()}
 
-    def _load_class_names(self, data):
-        if "class_names" not in data:
-            self.class_names = DEFAULT_CLASS_NAMES
+    def get_detections(self, file_name):
+        txt_file = os.path.join(OUTPUT_DIR, "{}/{}.txt".format(self.video_name, file_name))
 
-        self.class_names = {int(k): v for k, v in json.loads(data["class_names"]).items()}
+        if not os.path.exists(txt_file):
+            return []
 
-    def to_json(self):
-        return {
+        with open(txt_file, "r") as f:
+            return [Detection.from_json(json.loads(detection.rstrip('\n'))) for detection in f]
+
+    def load_detections(self, file_name):
+        self.file_name = file_name
+        self.detections = self.get_detections(file_name)
+
+    def write_info(self):
+        json_file = os.path.join(OUTPUT_DIR, "{}/info.json".format(self.video_name))
+
+        data = {
             "video_name": self.video_name,
             "nb_track_ids": self.nb_track_ids,
-            "class_names": json.dumps(self.class_names),
-            "frames": [
-                {
-                    "frame_id": i,
-                    "file_name": self.file_names[i],
-                    "detections": [d.to_json() for d in detections]
-                }
-                for i, detections in enumerate(self.detections)
-            ]
+            "class_names": json.dumps(self.class_names)
         }
 
-    def get_min_available_track_id(self, frame):
-        track_ids = set([d.track_id for d in self.detections[frame]])
-        N = len(track_ids)
-        missing_track_ids = set(range(N)) - track_ids
-        if missing_track_ids:
-            return min(missing_track_ids)
-        else:
-            return N+1
+        with open(json_file, "w") as f:
+            json.dump(data, f)
 
-    def save_to_disk(self, backup=None):
+    def write_detections(self, file_name, detections=None):
+        txt_file = os.path.join(OUTPUT_DIR, "{}/{}.txt".format(self.video_name, file_name))
 
-        if backup is not None:
-            file_name = "{}_backup_{}.json".format(self.video_name, backup)
-        else:
-            file_name = "{}.json".format(self.video_name)
+        if file_name is None:
+            return
 
-        with open(os.path.join(OUTPUT_DIR, file_name), "w") as f:
-            json.dump(self.to_json(), f)
+        if detections is None:
+            detections = self.detections
+
+        if file_name == self.file_name:
+            self.detections = detections
+
+        with open(txt_file, "w") as f:
+            for d in detections:
+                f.write("{}\n".format(json.dumps(d.to_json())))
+
+        self.nb_track_ids = max(self.nb_track_ids, max([d.track_id for d in detections] or [0]) + 1)
 
 
 class Detector:
@@ -303,36 +311,39 @@ def main():
 
     crop_area = None
 
+    if not os.path.exists(args.sequence):
+        write_running_info(error="No such file or directory: {}".format(args.sequence))
+        return
+
     file_names = sorted(glob.glob('{}/*.jpg'.format(args.sequence)), key=utils.natural_sort_key)
     video_name = os.path.basename(args.sequence)
     nb_frames = len(file_names)
 
-    track_info = TrackInfo(video_name, file_names)
+    track_info = TrackInfo(video_name)
     start_time = datetime.datetime.now()
 
     for frame, detections in enumerate(detector.detect_batch(file_names, crop_area)):
+        file_path = file_names[frame]
+        base = os.path.basename(file_path)
+        file_name = os.path.splitext(base)[0]
 
-        track_info.detections[frame] = detections
-
+        track_info.write_detections(file_name, detections)
         write_running_info(video_name, start_time, frame, nb_frames)
-
-        if frame % 100 == 0:
-            track_info.save_to_disk()
-
-        if frame % 1000 == 0:
-            track_info.save_to_disk(backup=(frame // 1000))
 
     track_info.save_to_disk()
 
 
-def write_running_info(video_name, start_time, frame, nb_frames):
+def write_running_info(video_name="", start_time="", frame=0, nb_frames=0, error=None):
     data = {
         "video_name": video_name,
         "current_frame": frame + 1,
         "total_frame": nb_frames,
         "start_time": str(start_time),
-        "last_update": str(datetime.datetime.now())
+        "last_update": str(datetime.datetime.now()),
     }
+
+    if error is not None:
+        data["error"] = error
 
     file_name = os.path.join(OUTPUT_DIR, "running_info.json")
 
@@ -341,4 +352,7 @@ def write_running_info(video_name, start_time, frame, nb_frames):
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        write_running_info(error=str(e))
