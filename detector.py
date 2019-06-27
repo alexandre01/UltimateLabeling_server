@@ -19,6 +19,7 @@ import numpy as np
 import openpifpaf.network
 import openpifpaf
 import glob
+import math
 
 
 HOST, PORT = "", 8786
@@ -131,27 +132,45 @@ class YOLODetector(Detector):
 
     def detect_single_image(self, image_path, crop_area=None):
         img = Image.open(image_path).convert('RGB')
-        w, h = img.size
+        W, H = img.size
 
         # Cropping
-        if crop_area is not None:
-            print("cropping area {}".format(crop_area))
-            img = img.crop(crop_area)
+        if crop_area is None:
+            crop_area = (0, 0, W, H)
+        x_crop, y_crop, w_crop, h_crop = crop_area
 
-        sized = letterbox_image(img, self.model.width, self.model.height)
-        start = time.time()
+        margin = 0.03 * max(W, H)  # 3% margin
 
-        with torch.no_grad():
-            boxes = do_detect(self.model, sized, 0.5, 0.4, self.use_cuda)
+        detections = []
 
-        self.correct_yolo_boxes(boxes, w, h, self.model.width, self.model.height, crop_area)
-        finish = time.time()
+        # Number of repeated cropping areas to span the entire image
+        n_left = math.ceil(x_crop / w_crop)
+        n_right = math.ceil((W - (x_crop + w_crop)) / w_crop)
+        n_top = math.ceil(y_crop / h_crop)
+        n_bottom = math.ceil((H - (y_crop + h_crop)) / h_crop)
 
-        print('%s: Predicted in %f seconds.' % (image_path, (finish - start)))
+        for i in range(-n_top, 1 + n_bottom):
+            for j in range(-n_left, 1 + n_right):
+                crop_area = (x_crop + j * w_crop - margin, y_crop + i * h_crop - margin,
+                             x_crop + j * w_crop + w_crop + margin, y_crop + i * h_crop + h_crop + margin)
+                print(i, j, crop_area)
 
-        detections = [Detection(class_id=self.yolo_to_coco_class(b[6].item()), track_id=i,
-                                bbox=Bbox((b[0] - b[2] / 2).item() * w, (b[1] - b[3] / 2).item() * h,
-                                          b[2].item() * w, b[3].item() * h)) for i, b in enumerate(boxes)]
+                img_crop = img.crop(crop_area)
+
+                sized = letterbox_image(img_crop, self.model.width, self.model.height)
+                start = time.time()
+
+                with torch.no_grad():
+                    boxes = do_detect(self.model, sized, 0.5, 0.4, self.use_cuda)
+
+                self.correct_yolo_boxes(boxes, W, H, self.model.width, self.model.height, crop_area)
+                finish = time.time()
+
+                print('%s: Predicted in %f seconds.' % (image_path, (finish - start)))
+
+                detections.extend([Detection(class_id=self.yolo_to_coco_class(b[6].item()), track_id=i,
+                                        bbox=Bbox((b[0] - b[2] / 2).item() * W, (b[1] - b[3] / 2).item() * H,
+                                                  b[2].item() * W, b[3].item() * H)) for i, b in enumerate(boxes)])
 
         return detections
 
