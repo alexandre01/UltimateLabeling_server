@@ -192,14 +192,7 @@ class YOLODetector(Detector):
             b[3] *= ys * factor_h
 
     def yolo_to_coco_class(self, class_id):
-        if class_id in [0, 3]:
-            return 3
-        if class_id == 1:
-            return 8
-        if class_id == 2:
-            return 6
-
-        return 0
+        return class_id
 
     def detect_single_image(self, image_path, crop_area=None):
         img = Image.open(image_path).convert('RGB')
@@ -290,7 +283,7 @@ class OpenPifPafDetector(Detector):
             keypoints = keypoint_sets.reshape(-1, 3 * 17)  # keypoints shape: (nb_detections, 3*17)
             print(keypoints)
 
-            detections = [Detection(track_id=i, class_id=1, keypoints=Keypoints(kp), bbox=utils.keypoints_to_bbox(kp)) for i, kp in enumerate(keypoints)]
+            detections = [Detection(track_id=i, class_id=5, keypoints=Keypoints(kp), bbox=utils.keypoints_to_bbox(kp)) for i, kp in enumerate(keypoints)]
 
             return detections
 
