@@ -54,6 +54,7 @@ class Detection:
         return "Detection(class_id={}, track_id={}, bbox={}, polygon={}, keypoints={})".format(self.class_id, self.track_id,
                                                                                  self.bbox, self.polygon, self.keypoints)
 
+
 class TrackInfo:
     def __init__(self, video_name=""):
         self.video_name = video_name
@@ -313,6 +314,8 @@ def main():
     parser.add_argument("-c", "--crop-area", type=int, nargs=4, help="crop area")
     args = parser.parse_args()
 
+    print(args)
+
     if args.detector == "YOLO":
         detector = YOLODetector()
     elif args.detector == "OpenPifPaf":
@@ -321,7 +324,7 @@ def main():
         print("Unknown detector")
         return
 
-    crop_area = None
+    crop_area = args.crop_area
 
     if not os.path.exists(args.sequence):
         write_running_info(error="No such file or directory: {}".format(args.sequence))
