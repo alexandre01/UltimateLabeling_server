@@ -111,6 +111,10 @@ class Bbox:
     def to_json(self):
         return self.xywh.tolist()
 
+    def to_dict(self):
+        x, y, w, h = self.xywh
+        return {"x": x, "y": y, "w": w, "h": h}
+
     def copy(self):
         return Bbox(*self.to_json())
 
@@ -133,6 +137,14 @@ class Polygon:
 
     def to_json(self):
         return self.coords.tolist()
+
+    def to_str(self):
+        return " ".join([str(x) for x in self.coords])
+
+    @staticmethod
+    def from_str(s):
+        coords = s.split()
+        return Polygon(coords)
 
     def copy(self):
         return Polygon(self.coords.copy())
@@ -171,6 +183,14 @@ class Keypoints:
 
     def to_json(self):
         return self.coords.tolist()
+
+    def to_str(self):
+        return " ".join([str(x) for x in self.coords])
+
+    @staticmethod
+    def from_str(s):
+        coords = s.split()
+        return Keypoints(coords)
 
     def copy(self):
         return Keypoints(self.coords.copy())
