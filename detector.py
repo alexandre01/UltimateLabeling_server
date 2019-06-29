@@ -49,6 +49,15 @@ class Detection:
             "keypoints": self.keypoints.to_json()
         }
 
+    def to_dict(self):
+        return {"track_id": self.track_id, "class_id": self.class_id, **self.bbox.to_dict(),
+                "polygon": self.polygon.to_str(), "kp": self.keypoints.to_str()}
+
+    @staticmethod
+    def from_df(row):
+        bbox = Bbox(row.x, row.y, row.w, row.h)
+        return Detection(row.class_id, row.track_id, Polygon.from_str(row.polygon), bbox, Keypoints.from_str(row.kp))
+
     def copy(self):
         return Detection(self.class_id, self.track_id, self.polygon.copy(), self.bbox.copy(), self.keypoints.copy())
 

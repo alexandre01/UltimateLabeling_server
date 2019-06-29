@@ -23,6 +23,7 @@ import glob
 from config import OUTPUT_DIR
 from class_names import DEFAULT_CLASS_NAMES
 import math
+import pandas as pd
 
 
 class Detection:
@@ -46,6 +47,15 @@ class Detection:
             "bbox": self.bbox.to_json(),
             "keypoints": self.keypoints.to_json()
         }
+
+    def to_dict(self):
+        return {"track_id": self.track_id, "class_id": self.class_id, **self.bbox.to_dict(),
+                "polygon": self.polygon.to_str(), "kp": self.keypoints.to_str()}
+
+    @staticmethod
+    def from_df(row):
+        bbox = Bbox(row.x, row.y, row.w, row.h)
+        return Detection(row.class_id, row.track_id, Polygon.from_str(row.polygon), bbox, Keypoints.from_str(row.kp))
 
     def copy(self):
         return Detection(self.class_id, self.track_id, self.polygon.copy(), self.bbox.copy(), self.keypoints.copy())
@@ -85,14 +95,30 @@ class TrackInfo:
             self.nb_track_ids = data["nb_track_ids"]
             self.class_names = {int(k): v for k, v in json.loads(data["class_names"]).items()}
 
+    @staticmethod
+    def df_from_csv(file_name):
+        if not os.path.exists(file_name):
+            return pd.DataFrame(columns=["track_id", "class_id", "x", "y", "w", "h", "polygon", "kp"])
+
+        return pd.read_csv(file_name, header=None, names=["track_id", "class_id", "x", "y", "w", "h", "polygon", "kp"],
+                           na_filter=False)
+
+    @staticmethod
+    def df_to_csv(df, file_name):
+        df.to_csv(file_name, index=None, header=False)
+
+    @staticmethod
+    def df_add_detection(df, detection: Detection):
+        return df.append(detection.to_dict(), ignore_index=True)
+
     def get_detections(self, file_name):
         txt_file = os.path.join(OUTPUT_DIR, "{}/{}.txt".format(self.video_name, file_name))
 
         if not os.path.exists(txt_file):
             return []
 
-        with open(txt_file, "r") as f:
-            return [Detection.from_json(json.loads(detection.rstrip('\n'))) for detection in f]
+        df = self.df_from_csv(txt_file)
+        return [Detection.from_df(row) for _, row in df.iterrows()]
 
     def load_detections(self, file_name):
         self.file_name = file_name
@@ -113,18 +139,16 @@ class TrackInfo:
     def write_detections(self, file_name, detections=None):
         txt_file = os.path.join(OUTPUT_DIR, "{}/{}.txt".format(self.video_name, file_name))
 
-        if file_name is None:
-            return
-
         if detections is None:
             detections = self.detections
 
         if file_name == self.file_name:
             self.detections = detections
 
-        with open(txt_file, "w") as f:
-            for d in detections:
-                f.write("{}\n".format(json.dumps(d.to_json())))
+        df = pd.DataFrame(columns=["track_id", "class_id", "x", "y", "w", "h", "polygon", "kp"])
+        if len(detections) > 0:
+            df = df.append([d.to_dict() for d in detections], ignore_index=True)
+        self.df_to_csv(df, txt_file)
 
         self.nb_track_ids = max(self.nb_track_ids, max([d.track_id for d in detections] or [0]) + 1)
 
